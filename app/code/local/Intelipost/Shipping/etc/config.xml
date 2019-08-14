@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+
+<config>
+  <modules>
+    <Intelipost_Shipping>
+      <version>0.0.1</version>
+    </Intelipost_Shipping>
+  </modules>
+
+  <global>
+    <models>
+      <intelipost_shipping>
+        <class>Intelipost_Shipping_Model</class>
+      </intelipost_shipping>
+    </models>
+
+    <helpers>
+      <intelipost>
+        <class>Intelipost_Shipping_Helper</class>
+      </intelipost>
+    </helpers>
+
+    <resources>
+      <intelipost_setup>
+        <setup>
+          <module>Intelipost_Shipping</module>
+          <class>Intelipost_Shipping_Model_Resource_Setup</class>
+        </setup>
+      </intelipost_setup>
+    </resources>
+
+    <sales>
+      <quote>
+        <item>
+          <product_attributes>
+            <volume_altura />
+            <volume_largura />
+            <volume_comprimento />
+          </product_attributes>
+        </item>
+      </quote>
+    </sales>
+  </global>
+
+  <adminhtml>
+    <translate>
+      <modules>
+        <Intelipost_Shipping>
+          <files>
+            <default>Intelipost_Shipping.csv</default>
+          </files>
+        </Intelipost_Shipping>
+      </modules>
+    </translate>
+  </adminhtml>
+
+  <frontend>
+    <translate>
+      <modules>
+        <Intelipost_Shipping>
+          <files>
+            <default>Intelipost_Shipping.csv</default>
+          </files>
+        </Intelipost_Shipping>
+      </modules>
+    </translate>
+  </frontend>
+
+  <default>
+    <carriers>
+      <intelipost>
+        <active>1</active>
+        <model>intelipost_shipping/carrier_intelipost</model>
+        <name>Intelipost</name>
+        <title>Intelipost</title>
+        <notification>1</notification>
+      </intelipost>
+    </carriers>
+  </default>
+
+</config>
