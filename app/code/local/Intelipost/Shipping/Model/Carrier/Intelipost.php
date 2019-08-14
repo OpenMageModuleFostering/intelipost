@@ -25,7 +25,7 @@ class Intelipost_Shipping_Model_Carrier_Intelipost
             return false;
         }
 
-        $originZipCode      = $this->getConfigData('zipcode');
+        $originZipCode      = trim($this->getConfigData('zipcode'));
         $destinationZipCode = $request->getDestPostcode();
 
         if (!preg_match($this->_zipCodeRegex, $originZipCode) || !preg_match($this->_zipCodeRegex, $destinationZipCode)) {
@@ -52,9 +52,9 @@ class Intelipost_Shipping_Model_Carrier_Intelipost
 
         $price      = $request->getPackageValue();
 
-        $encryption = Mage::getSingleton('core/encryption');
-        $api_key    = $encryption->decrypt($this->getConfigData('apikey'));
-        $api_url    = $encryption->decrypt($this->getConfigData('apiurl'));
+        //$encryption = Mage::getSingleton('core/encryption');
+        $api_key    = Mage::helper('core')->decrypt($this->getConfigData('apikey'));
+        $api_url    = Mage::helper('core')->decrypt($this->getConfigData('apiurl'));
 
         if(!isset($api_key) || !is_string($api_key)) {
             Mage::log('Intelipost not configured', null, 'intelipost.log', true);
@@ -76,52 +76,163 @@ class Intelipost_Shipping_Model_Carrier_Intelipost
         // if notification is disabled we send the request anyways (changed on version 0.0.2)
         $dimension_check = $this->getConfigData('notification');
 
-        $i=0;
-        foreach ($item_list as $item) {
-            $product = $item->getProduct();
+        $i = 0;
+	$total_weight = 0;
+	$total_volume = 0;
+        // Volume calculation for a package
+        foreach ( $request->getAllItems() as $item) {
 
-            $volume = new Intelipost_Model_Request_Volume();
-            $volume->volume_type = 'BOX';
+              $product = $item->getProduct();
+              if($product->isConfigurable()== true){
+              //$teste=$product->isConfigurable();
+              //Mage::log('configuravel: '.$product->isConfigurable() , null, 'intelipost.log', true);
+              continue;
+              }
+              $prod_width= $item->getProduct()->getVolumeLargura();
+              $prod_length= $item->getProduct()->getVolumeComprimento();
+              $prod_height= $item->getProduct()->getVolumeAltura();
 
-            if (!$this->isDimensionSet($product)) {
-                Mage::log('Product does not have dimensions set', null, 'intelipost.log', true);
 
-                if ($dimension_check) {
-                    $this->notifyProductsDimension($item_list);
-                    return false;
-                }
-            } else {
-                $volume->width = $product->getVolumeLargura();
-                $volume->height = $product->getVolumeAltura();
-                $volume->length = $product->getVolumeComprimento();
-            }
-
-            $volume->weight = number_format(floatval($item->getWeight()), 2, ',', '') * $item->getQty();
-            $volume->cost_of_goods = number_format(floatval($item->getPrice()), 2, ',', '') * $item->getQty();
-
-            array_push($quote->volumes, $volume);
+            $total_volume += $prod_width * $prod_length * $prod_height *  $item->getQty();
+            //Mage::log('volume: '.$total_volume , null, 'intelipost.log', true);
+            //Mage::log('volume: '.$volumecubic , null, 'intelipost.log', true);
+            //$volume->weight = number_format(floatval($item->getWeight()), 2, ',', '') * $item->getQty();
         }
 
-        $request = json_encode($quote);
+           if ($total_volume ==0 ) {
+            //   Mage::log('Product does not have dimensions set', null, 'intelipost.log', true);
+
+                $pack_width = $this->getConfigData('largura_padrao'); // putting default config values here if product width is empty
+                $pack_height = $this->getConfigData('altura_padrao'); // putting default config values here if product height is empty
+                $pack_length = $this->getConfigData('comprimento_padrao'); // putting default config values here if product length is empty
+
+
+            } else {
+                $volume_bycubic = pow($total_volume, 1/3);
+                $volume_bycubic = number_format($volume_bycubic, 2, '.', '');
+                //Mage::log('volume: '.$volume_bycubic , null, 'intelipost.log', true);
+                $pack_width = $volume_bycubic;
+                $pack_height = $volume_bycubic;
+                $pack_length = $volume_bycubic;
+            }
+
+
+        $volume = new Intelipost_Model_Request_Volume();
+        $volume->volume_type = 'BOX';
+        $volume->weight = $weight;
+        $volume->width = $pack_width;
+        $volume->height = $pack_height;
+        $volume->length = $pack_length;
+        $volume->cost_of_goods = floatval($price);
+        array_push($quote->volumes, $volume);
+        
+	$request = json_encode($quote);
 
         // INTELIPOST QUOTE
         $responseBody = $this->intelipostRequest($api_url, $api_key, "/quote", $request);
         $response = json_decode($responseBody);
         $result = Mage::getModel('shipping/rate_result');
 
-        foreach ($response->content->delivery_options as $deliveryOption) { 
-            $method = Mage::getModel('shipping/rate_result_method'); 
-            $method_deadline = $this->formatDeadline((int)$deliveryOption->delivery_estimate_business_days);
-			$method_description = $deliveryOption->description." ".$method_deadline;
-            $method->setCarrier     ('intelipost'); 
-            $method->setCarrierTitle('Intelipost'); 
-            $method->setMethod      ($deliveryOption->description); 
-            $method->setMethodTitle ($method_description); 
-            $method->setPrice       ($deliveryOption->final_shipping_cost); 
-            $method->setCost        ($deliveryOption->provider_shipping_cost); 
+	if($response->status == "OK"||$response->status == "WARNING") { // if api responds fine
+                        if($response->status == "WARNING"){
+		        	
+        		Mage::log('WARNING'.json_encode($response->messages), null, 'intelipost.log', true);
+			}
+			foreach ($response->content->delivery_options as $deliveryOption) { 
+				$method = Mage::getModel('shipping/rate_result_method'); 
+				
+				//$method_deadline = $this->formatDeadline((int)$deliveryOption->delivery_estimate_business_days);
+				//$method_description = $deliveryOption->description." ".$method_deadline;
+				
+				$custom_title = $this->getConfigData('customizetitle'); // new way of creating shipping labels point 3
+				$method_description = sprintf($custom_title, $deliveryOption->description, (int)$deliveryOption->delivery_estimate_business_days); // new way of creating shipping labels point 3
+				
+				$method->setCarrier     ('intelipost'); 
+				$method->setCarrierTitle($this->getConfigData('title')); 
+				$method->setMethod      ($deliveryOption->description); 
+				$method->setMethodTitle ($method_description); 
+				$method->setPrice       ($deliveryOption->final_shipping_cost); 
+				$method->setCost        ($deliveryOption->provider_shipping_cost); 
 
-            $result->append($method); 
-        } 
+				$result->append($method); 
+			}
+		}else{ // else if API call fails or reponse in more then 3 seconds
+			
+			$shipping_price = ''; // defining shipping price
+			$number_of_days = ''; // defining number_of_days to deliver
+
+			$root_dir_path = Mage::getBaseDir();
+			$media_dir_path = $root_dir_path.DIRECTORY_SEPARATOR.'media';
+
+			$intelipost_dir_path = $media_dir_path.DIRECTORY_SEPARATOR.'intelipost';
+			$filepath = $intelipost_dir_path.DIRECTORY_SEPARATOR."state_codification.json";
+			
+			if (file_exists($filepath)) { // check if file exists locally
+				
+				$c_state = ''; $c_type = ''; // defining empty variables for state and type
+
+				$intZipCode = (int)$destinationZipCode; // Transform ZIP code from string => numeric
+
+				$c_weight = $total_weight*1000; // converting total weight of quote into grams
+
+				$state_codification = json_decode(file_get_contents($filepath)); // load state_codification.json as array
+				
+				$intArray = array(); // Defining a new array for integer values
+				foreach($state_codification[0] as $key => $value) {
+					$intArray[(int)$key] = $value; // Transform keys of array from string => numeric
+				}
+				asort($intArray); // Sort the keys of the array ascending
+				
+				foreach($intArray as $key => $value) {
+					if(($intZipCode > $key) && ($intZipCode < (int)$value->cep_end)) {
+						$c_state = trim($value->state); // assigning value of state here if found
+						$c_type = ucfirst(strtolower($value->type)); // assigning value of type here if found
+						break;
+					}
+				}
+
+				if($c_state != '' && $c_type != '') { // if state and type are found
+					
+					$filepath = $intelipost_dir_path.DIRECTORY_SEPARATOR."esedex.sp.json";
+					if (file_exists($filepath)) { // check if file exists locally
+						$esedex = json_decode(file_get_contents($filepath)); // Load configured backup table: e.g. esedex.sp.json
+						
+						$number_of_days = $esedex->$c_state->$c_type->delivery_estimate_business_days;
+						foreach($esedex->$c_state->$c_type->final_shipping_cost as $key => $value) {
+							if(($key > $c_weight) && !isset($last_v)) {
+								$shipping_price = $value;
+								break;
+							}
+
+							if($key > $c_weight) {
+								$shipping_price = $last_v;
+								break;
+							}
+
+							$last_k = $key; // saving -1 key
+							$last_v = $value; // saving value for -1 key
+						}
+					}
+
+				}
+
+			}
+			if($shipping_price != '' && $number_of_days != '') {
+				$method = Mage::getModel('shipping/rate_result_method'); 
+				
+				$custom_title = $this->getConfigData('customizetitle'); // new way of creating shipping labels point 3
+				$method_description = sprintf($custom_title, "Entrega", (int)$number_of_days); // new way of creating shipping labels point 3
+				
+				$method->setCarrier     ('intelipost'); 
+				$method->setCarrierTitle('Intelipost'); 
+				$method->setMethod      ("Entrega"); 
+				$method->setMethodTitle ($method_description); 
+				$method->setPrice       ($shipping_price); 
+				$method->setCost        ($shipping_price); 
+
+				$result->append($method);
+			}
+		}
 
         return $result;
     }
@@ -220,11 +331,12 @@ class Intelipost_Shipping_Model_Carrier_Intelipost
      */
     private function intelipostRequest($api_url, $api_key, $entity_action, $request=false)
     {
+		$mgversion = Mage::getEdition()." ".Mage::getVersion();
         $s = curl_init();
 
-        curl_setopt($s, CURLOPT_TIMEOUT, 5000);
+        curl_setopt($s, CURLOPT_TIMEOUT, 3); // maximum time allowed to call API is 3 seconds
         curl_setopt($s, CURLOPT_URL, $api_url.$entity_action);
-        curl_setopt($s, CURLOPT_HTTPHEADER, array("Content-Type: application/json", "Accept: application/json", "api_key: $api_key"));
+        curl_setopt($s, CURLOPT_HTTPHEADER, array("Content-Type: application/json", "Accept: application/json", "api_key: $api_key", "platform: Magento $mgversion", "plugin: 1.1.0"));
         curl_setopt($s, CURLOPT_POST, true);
         curl_setopt($s, CURLOPT_ENCODING , "");
         curl_setopt($s, CURLOPT_RETURNTRANSFER, 1);
@@ -234,6 +346,8 @@ class Intelipost_Shipping_Model_Carrier_Intelipost
 
         curl_close($s);
 
+        //Mage::log('REQUEST '.$request, null, 'intelipost.log', true);
+        //Mage::log('RESPONSE '.$response, null, 'intelipost.log', true);
         return $response;
     }
 
