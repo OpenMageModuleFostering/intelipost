@@ -1,16 +1,19 @@
 {
-    "name": "OpenMageModuleFostering/Intelipost",
+    "name": "OpenMageModuleFostering\/Intelipost",
     "type": "magento-module",
     "license": "GNU-General-Public-License-Version-2-(GPLv2)",
     "homepage": "",
     "description": "Intelipost",
     "authors": [
-    {
-        "name": "Intelipost",
-        "email": "it@intelipost.com.br"
-    }
-],
+        {
+            "name": "Intelipost",
+            "email": "it@intelipost.com.br"
+        }
+    ],
     "suggest": {
-        "magento-hackathon/magento-composer-installer": "*"
-    }
+        "magento-hackathon\/magento-composer-installer": "*"
+    },
+    "keywords": [
+        "openmage-module"
+    ]
 }
